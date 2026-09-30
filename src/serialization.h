@@ -82,14 +82,15 @@ inline void compressZlib(std::string_view data, std::ostream &os, int level = -1
 {
 	compressZlib(reinterpret_cast<const u8*>(data.data()), data.size(), os, level, raw);
 }
-void decompressZlib(std::istream &is, std::ostream &os, size_t limit = 0, bool raw = false);
+void decompressZlib(std::istream &is, std::ostream &os, size_t limit = 0,
+		bool raw = false, bool error_on_limit = false);
 
 void compressZstd(const u8 *data, size_t data_size, std::ostream &os, int level = 0);
 inline void compressZstd(std::string_view data, std::ostream &os, int level = 0)
 {
 	compressZstd(reinterpret_cast<const u8*>(data.data()), data.size(), os, level);
 }
-void decompressZstd(std::istream &is, std::ostream &os);
+void decompressZstd(std::istream &is, std::ostream &os, size_t limit = 0);
 
 // These choose between zstd, zlib and a self-made one according to version
 void compress(const u8 *data, u32 size, std::ostream &os, u8 version, int level = -1);
@@ -97,4 +98,4 @@ inline void compress(std::string_view data, std::ostream &os, u8 version, int le
 {
 	compress(reinterpret_cast<const u8*>(data.data()), data.size(), os, version, level);
 }
-void decompress(std::istream &is, std::ostream &os, u8 version);
+void decompress(std::istream &is, std::ostream &os, u8 version, size_t limit = 0);

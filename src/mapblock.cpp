@@ -514,7 +514,7 @@ void MapBlock::deSerialize(std::istream &in_compressed, u8 version, bool disk)
 
 	// Decompress the whole block (version >= 29)
 	std::stringstream is(std::ios_base::binary | std::ios_base::in | std::ios_base::out);
-	decompress(in_compressed, is, version);
+	decompress(in_compressed, is, version, disk ? 0 : LONG_STRING_MAX_LEN);
 	deSerializeUncompressed(is, version, disk);
 }
 
@@ -664,7 +664,7 @@ void MapBlock::deSerialize_pre29(std::istream &is, u8 version, bool disk)
 		Bulk node data
 	*/
 	std::stringstream in_raw(std::ios_base::binary | std::ios_base::in | std::ios_base::out);
-	decompress(is, in_raw, version);
+	decompress(is, in_raw, version, disk ? 0 : LONG_STRING_MAX_LEN);
 	MapNode::deSerializeBulk(in_raw, version, data, nodecount,
 		content_width, params_width);
 
@@ -677,7 +677,7 @@ void MapBlock::deSerialize_pre29(std::istream &is, u8 version, bool disk)
 		// reuse in_raw
 		in_raw.str("");
 		in_raw.clear();
-		decompress(is, in_raw, version);
+		decompress(is, in_raw, version, disk ? 0 : LONG_STRING_MAX_LEN);
 		if (version >= 23)
 			m_node_metadata.deSerialize(in_raw, m_gamedef->idef());
 		else
@@ -777,7 +777,7 @@ void MapBlock::deSerialize_pre22(std::istream &is, u8 version, bool disk)
 		{
 			// Uncompress and set material data
 			std::ostringstream os(std::ios_base::binary);
-			decompress(is, os, version);
+			decompress(is, os, version, disk ? 0 : LONG_STRING_MAX_LEN);
 			std::string s = os.str();
 			if (s.size() != nodecount)
 				throw SerializationError(std::string(FUNCTION_NAME)
@@ -789,7 +789,7 @@ void MapBlock::deSerialize_pre22(std::istream &is, u8 version, bool disk)
 		{
 			// Uncompress and set param data
 			std::ostringstream os(std::ios_base::binary);
-			decompress(is, os, version);
+			decompress(is, os, version, disk ? 0 : LONG_STRING_MAX_LEN);
 			std::string s = os.str();
 			if (s.size() != nodecount)
 				throw SerializationError(std::string(FUNCTION_NAME)
@@ -802,7 +802,7 @@ void MapBlock::deSerialize_pre22(std::istream &is, u8 version, bool disk)
 		if (version >= 10) {
 			// Uncompress and set param2 data
 			std::ostringstream os(std::ios_base::binary);
-			decompress(is, os, version);
+			decompress(is, os, version, disk ? 0 : LONG_STRING_MAX_LEN);
 			std::string s = os.str();
 			if (s.size() != nodecount)
 				throw SerializationError(std::string(FUNCTION_NAME)
@@ -820,7 +820,7 @@ void MapBlock::deSerialize_pre22(std::istream &is, u8 version, bool disk)
 
 		// Uncompress data
 		std::ostringstream os(std::ios_base::binary);
-		decompress(is, os, version);
+		decompress(is, os, version, disk ? 0 : LONG_STRING_MAX_LEN);
 		std::string s = os.str();
 		if (s.size() != nodecount * 3)
 			throw SerializationError(std::string(FUNCTION_NAME)
@@ -848,7 +848,8 @@ void MapBlock::deSerialize_pre22(std::istream &is, u8 version, bool disk)
 				} else {
 					//std::string data = deSerializeString32(is);
 					std::ostringstream oss(std::ios_base::binary);
-					decompressZlib(is, oss);
+					decompressZlib(is, oss, disk ? 0 : LONG_STRING_MAX_LEN,
+							false, !disk);
 					std::istringstream iss(oss.str(), std::ios_base::binary);
 					content_nodemeta_deserialize_legacy(iss,
 						&m_node_metadata, &m_node_timers,

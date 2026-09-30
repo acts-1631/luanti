@@ -274,7 +274,7 @@ void Client::handleCommand_NodemetaChanged(NetworkPacket *pkt)
 
 	std::istringstream is(pkt->readLongString(), std::ios::binary);
 	std::stringstream sstr(std::ios::binary | std::ios::in | std::ios::out);
-	decompressZlib(is, sstr);
+	decompressZlib(is, sstr, LONG_STRING_MAX_LEN, false, true);
 
 	NodeMetadataList meta_updates_list(false);
 	meta_updates_list.deSerialize(sstr, m_itemdef, true);
@@ -646,7 +646,7 @@ void Client::handleCommand_AnnounceMedia(NetworkPacket* pkt)
 		{
 			std::istringstream iss(pkt->readLongString(), std::ios::binary);
 			std::stringstream ss(std::ios::in | std::ios::out | std::ios::binary);
-			decompressZstd(iss, ss);
+			decompressZstd(iss, ss, LONG_STRING_MAX_LEN);
 			names = deserializeString16Array(ss);
 		}
 
@@ -717,7 +717,7 @@ void Client::handleCommand_Media(NetworkPacket* pkt)
 		if (m_proto_ver >= 48) {
 			std::istringstream iss(data, std::ios::binary);
 			std::ostringstream oss(std::ios::binary);
-			decompressZstd(iss, oss);
+			decompressZstd(iss, oss, MEDIAFILE_MAX_SIZE);
 			data = oss.str();
 		}
 
@@ -755,9 +755,9 @@ void Client::handleCommand_NodeDef(NetworkPacket* pkt)
 	std::istringstream tmp_is(pkt->readLongString(), std::ios::binary);
 	std::stringstream tmp_os(std::ios::binary | std::ios::in | std::ios::out);
 	if (m_proto_ver >= 48)
-		decompressZstd(tmp_is, tmp_os);
+		decompressZstd(tmp_is, tmp_os, LONG_STRING_MAX_LEN);
 	else
-		decompressZlib(tmp_is, tmp_os);
+		decompressZlib(tmp_is, tmp_os, LONG_STRING_MAX_LEN, false, true);
 
 	// Deserialize node definitions
 	m_nodedef->deSerialize(tmp_os, m_proto_ver);
@@ -777,9 +777,9 @@ void Client::handleCommand_ItemDef(NetworkPacket* pkt)
 	std::istringstream tmp_is(pkt->readLongString(), std::ios::binary);
 	std::stringstream tmp_os(std::ios::binary | std::ios::in | std::ios::out);
 	if (m_proto_ver >= 48)
-		decompressZstd(tmp_is, tmp_os);
+		decompressZstd(tmp_is, tmp_os, LONG_STRING_MAX_LEN);
 	else
-		decompressZlib(tmp_is, tmp_os);
+		decompressZlib(tmp_is, tmp_os, LONG_STRING_MAX_LEN, false, true);
 
 	// Deserialize node definitions
 	m_itemdef->deSerialize(tmp_os, m_proto_ver);
@@ -995,7 +995,7 @@ void Client::handleCommand_SpawnParticleBatch(NetworkPacket *pkt)
 	std::stringstream particle_batch_data(std::ios::binary | std::ios::in | std::ios::out);
 	{
 		std::istringstream compressed(pkt->readLongString(), std::ios::binary);
-		decompressZstd(compressed, particle_batch_data);
+		decompressZstd(compressed, particle_batch_data, LONG_STRING_MAX_LEN);
 	}
 
 	while (canRead(particle_batch_data)) {

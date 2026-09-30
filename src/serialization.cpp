@@ -96,7 +96,8 @@ void compressZlib(const u8 *data, size_t data_size, std::ostream &os, int level,
 	}
 }
 
-void decompressZlib(std::istream &is, std::ostream &os, size_t limit, bool raw)
+void decompressZlib(std::istream &is, std::ostream &os, size_t limit, bool raw,
+		bool error_on_limit)
 {
 	z_stream z;
 	const s32 bufsize = 16384;
@@ -104,7 +105,7 @@ void decompressZlib(std::istream &is, std::ostream &os, size_t limit, bool raw)
 	char output_buffer[bufsize];
 	int status = 0;
 	int ret;
-	int bytes_written = 0;
+	size_t bytes_written = 0;
 	int input_buffer_len = 0;
 
 	z.zalloc = Z_NULL;
@@ -126,13 +127,15 @@ void decompressZlib(std::istream &is, std::ostream &os, size_t limit, bool raw)
 		z.avail_out = output_size;
 
 		if (limit) {
-			int limit_remaining = limit - bytes_written;
-			if (limit_remaining <= 0) {
-				// we're aborting ahead of time - throw an error?
+			size_t limit_remaining = limit - bytes_written;
+			if (limit_remaining == 0 && !error_on_limit)
 				break;
-			}
-			if (limit_remaining < output_size) {
-				z.avail_out = output_size = limit_remaining;
+			if (limit_remaining < (size_t)output_size) {
+				// In strict mode, permit one extra byte in the stack buffer so
+				// an exact-size stream can finish while oversized output is
+				// distinguished from it.
+				output_size = limit_remaining + (error_on_limit ? 1 : 0);
+				z.avail_out = output_size;
 			}
 		}
 
@@ -157,7 +160,13 @@ void decompressZlib(std::istream &is, std::ostream &os, size_t limit, bool raw)
 			throw SerializationError("decompressZlib: inflate failed");
 		}
 		int count = output_size - z.avail_out;
-		if(count)
+		if (limit && error_on_limit && bytes_written + count > limit) {
+			size_t allowed = limit - bytes_written;
+			if (allowed)
+				os.write(output_buffer, allowed);
+			throw SerializationError("decompressZlib: output size limit exceeded");
+		}
+		if (count)
 			os.write(output_buffer, count);
 		bytes_written += count;
 		if(status == Z_STREAM_END)
@@ -231,7 +240,7 @@ void compressZstd(const u8 *data, size_t data_size, std::ostream &os, int level)
 
 }
 
-void decompressZstd(std::istream &is, std::ostream &os)
+void decompressZstd(std::istream &is, std::ostream &os, size_t limit)
 {
 	// reusing the context is recommended for performance
 	// it will be destroyed when the thread ends
@@ -245,6 +254,7 @@ void decompressZstd(std::istream &is, std::ostream &os)
 
 	ZSTD_outBuffer output = { output_buffer, bufsize, 0 };
 	ZSTD_inBuffer input = { input_buffer, 0, 0 };
+	size_t bytes_written = 0;
 	size_t ret;
 	do
 	{
@@ -256,13 +266,25 @@ void decompressZstd(std::istream &is, std::ostream &os)
 				throw SerializationError("decompressZstd: data ended too early");
 		}
 
+		if (limit) {
+			size_t limit_remaining = limit - bytes_written;
+			output.size = limit_remaining < bufsize ? limit_remaining + 1 : bufsize;
+		}
+
 		ret = ZSTD_decompressStream(stream.get(), &output, &input);
 		if (ZSTD_isError(ret)) {
 			dstream << ZSTD_getErrorName(ret) << std::endl;
 			throw SerializationError("decompressZstd: failed");
 		}
 		if (output.pos) {
+			if (limit && bytes_written + output.pos > limit) {
+				size_t allowed = limit - bytes_written;
+				if (allowed)
+					os.write(output_buffer, allowed);
+				throw SerializationError("decompressZstd: output size limit exceeded");
+			}
 			os.write(output_buffer, output.pos);
+			bytes_written += output.pos;
 			output.pos = 0;
 		}
 	} while (ret != 0);
@@ -326,17 +348,17 @@ void compress(const u8 *data, u32 size, std::ostream &os, u8 version, int level)
 	os.write((char*)&current_byte, 1);
 }
 
-void decompress(std::istream &is, std::ostream &os, u8 version)
+void decompress(std::istream &is, std::ostream &os, u8 version, size_t limit)
 {
 	if(version >= 29)
 	{
-		decompressZstd(is, os);
+		decompressZstd(is, os, limit);
 		return;
 	}
 
 	if(version >= 11)
 	{
-		decompressZlib(is, os);
+		decompressZlib(is, os, limit, false, limit != 0);
 		return;
 	}
 
@@ -345,6 +367,8 @@ void decompress(std::istream &is, std::ostream &os, u8 version)
 	u8 tmp[4];
 	is.read((char*)tmp, 4);
 	u32 len = readU32(tmp);
+	if (limit && len > limit)
+		throw SerializationError("decompress: output size limit exceeded");
 
 	// We will be reading 8-bit pairs of more_count and byte
 	u32 count = 0;
@@ -360,10 +384,14 @@ void decompress(std::istream &is, std::ostream &os, u8 version)
 		if(is.eof())
 			throw SerializationError("decompress: stream ended halfway");
 
-		for(s32 i=0; i<(u16)more_count+1; i++)
+		u32 run_length = (u16)more_count + 1;
+		if (run_length > len - count)
+			throw SerializationError("decompress: invalid run length");
+
+		for (u32 i = 0; i < run_length; i++)
 			os.write((char*)&byte, 1);
 
-		count += (u16)more_count+1;
+		count += run_length;
 
 		if(count == len)
 			break;
