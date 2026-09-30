@@ -33,6 +33,25 @@ namespace con
 #define INIT_PHASE_MIN_TIMEOUT 5.0f
 
 #define MAX_NEW_PEERS_PER_SEC 30
+#define MAX_NEW_PEERS_PER_SOURCE_PER_SEC 5
+
+static std::string getRateLimitSource(const Address &address)
+{
+	std::string key;
+	if (address.isIPv6()) {
+		// Treat an IPv6 /64 as one host so changing the interface identifier
+		// cannot bypass the limit.
+		auto ipv6 = address.getAddress6();
+		key.assign(1, '6');
+		key.append(reinterpret_cast<const char *>(ipv6.s6_addr), 8);
+	} else {
+		auto ipv4 = address.getAddress();
+		key.assign(1, '4');
+		key.append(reinterpret_cast<const char *>(&ipv4.s_addr),
+				sizeof(ipv4.s_addr));
+	}
+	return key;
+}
 
 static inline session_t readPeerId(const u8 *packetdata)
 {
@@ -977,8 +996,24 @@ void ConnectionReceiveThread::receive(SharedBuffer<u8> &packetdata,
 			// Someone new is trying to talk to us. Add them.
 			if (peer_id == PEER_ID_INEXISTENT) {
 				auto &l = m_new_peer_ratelimit;
-				l.tick();
-				if (++l.counter > MAX_NEW_PEERS_PER_SEC) {
+				if (l.tick()) {
+					m_new_peer_ratelimit_per_source.clear();
+					m_new_peer_source_ratelimit_logged = false;
+				}
+
+				const std::string source = getRateLimitSource(sender);
+				auto source_it = m_new_peer_ratelimit_per_source.find(source);
+				if (source_it != m_new_peer_ratelimit_per_source.end() &&
+						source_it->second >= MAX_NEW_PEERS_PER_SOURCE_PER_SEC) {
+					if (!m_new_peer_source_ratelimit_logged) {
+						warningstream << m_connection->getDesc()
+							<< "Receive(): More than "
+							<< MAX_NEW_PEERS_PER_SOURCE_PER_SEC
+							<< " new clients from one network within 1s. Throttling."
+							<< std::endl;
+					}
+					m_new_peer_source_ratelimit_logged = true;
+				} else if (l.counter >= MAX_NEW_PEERS_PER_SEC) {
 					if (!l.logged) {
 						warningstream << m_connection->getDesc()
 							<< "Receive(): More than " << MAX_NEW_PEERS_PER_SEC
@@ -987,6 +1022,8 @@ void ConnectionReceiveThread::receive(SharedBuffer<u8> &packetdata,
 					l.logged = true;
 					// We simply drop the packet, the client can try again.
 				} else {
+					l.counter++;
+					m_new_peer_ratelimit_per_source[source]++;
 					peer_id = m_connection->createPeer(sender, 0);
 				}
 			}

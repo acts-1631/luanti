@@ -10,6 +10,8 @@
 /********************************************/
 
 #include <cassert>
+#include <string>
+#include <unordered_map>
 #include "threading/thread.h"
 #include "network/mtp/internal.h"
 
@@ -156,13 +158,15 @@ private:
 		int counter = 0;
 		bool logged = false;
 
-		void tick() {
+		bool tick() {
 			u64 now = porting::getTimeS();
 			if (time != now) {
 				time = now;
 				counter = 0;
 				logged = false;
+				return true;
 			}
+			return false;
 		}
 	};
 
@@ -171,5 +175,7 @@ private:
 	Connection *m_connection = nullptr;
 
 	RateLimitHelper m_new_peer_ratelimit;
+	std::unordered_map<std::string, u16> m_new_peer_ratelimit_per_source;
+	bool m_new_peer_source_ratelimit_logged = false;
 };
 }
